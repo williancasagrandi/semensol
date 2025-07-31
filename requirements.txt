@@ -1,0 +1,19 @@
+# Backend
+flask==2.3.3
+flask_sqlalchemy==3.1.1
+flask_migrate==4.0.5
+python-dotenv==1.0.1
+
+# Banco
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Visão computacional
+face-recognition==1.3.0
+opencv-python==4.8.1.78
+pillow==9.5.0
+easyocr==1.7.0
+numpy==1.25.2
+
+# Outros
+python-multipart==0.0.9
