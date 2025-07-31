@@ -26,15 +26,59 @@ def route_cadastrar_motorista():
         return jsonify({'erro': str(e)}), 500
 
 
-@cadastro_bp.route('/caminhao', methods=['POST'])
-def criar_caminhao():
-    data = request.get_json(force=True)
-    for campo in ('placa', 'modelo', 'empresa'):
-        if not data.get(campo):
-            return jsonify({'error': f'{campo} é obrigatório'}), 400
+@cadastro_bp.route('/caminhao/manual', methods=['POST'])
+def criar_caminhao_manual():
+    data = request.get_json()
+    placa = data.get('placa')
+    modelo = data.get('modelo')
+    empresa = data.get('empresa')
+
+    if not placa or not modelo or not empresa:
+        return jsonify({'error': 'placa, modelo e empresa são obrigatórios'}), 400
 
     try:
-        id_caminhao = cadastrar_caminhao(data['placa'], data['modelo'], data['empresa'])
+        id_caminhao = cadastrar_caminhao(placa.upper(), modelo, empresa)
         return jsonify({'id_caminhao': id_caminhao}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+
+@cadastro_bp.route('/caminhao/imagem', methods=['POST'])
+def criar_caminhao_por_imagem():
+    if 'imagem' not in request.files:
+        return jsonify({'error': 'Imagem da placa é obrigatória'}), 400
+
+    modelo = request.form.get('modelo')
+    empresa = request.form.get('empresa')
+
+    if not modelo or not empresa:
+        return jsonify({'error': 'modelo e empresa são obrigatórios'}), 400
+
+    imagem_file = request.files['imagem']
+    if imagem_file.filename == '':
+        return jsonify({'error': 'Arquivo de imagem vazio'}), 400
+
+    import tempfile, os
+    from app.utils.plate_utils import reconhecer_placa
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+            imagem_file.save(temp_file.name)
+            temp_path = temp_file.name
+
+        placa = reconhecer_placa(temp_path)
+        os.remove(temp_path)
+
+        if not placa:
+            return jsonify({'error': 'Não foi possível reconhecer a placa na imagem'}), 400
+
+        id_caminhao = cadastrar_caminhao(placa.upper(), modelo, empresa)
+        return jsonify({
+            'id_caminhao': id_caminhao,
+            'placa': placa.upper()
+        }), 201
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+

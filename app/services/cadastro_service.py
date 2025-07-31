@@ -44,18 +44,8 @@ def cadastrar_motorista(data: dict, imagem: FileStorage):
     }
 
 
-def cadastrar_caminhao(data: dict):
-    placa = data['placa']
-    modelo = data['modelo']
-    empresa = data['empresa']
-
+def cadastrar_caminhao(placa: str, modelo: str, empresa: str) -> int:
     caminhao = Caminhao(placa=placa, modelo=modelo, empresa=empresa)
     db.session.add(caminhao)
     db.session.commit()
-
-    return {
-        'id_caminhao': caminhao.id_caminhao,
-        'placa': caminhao.placa,
-        'modelo': caminhao.modelo,
-        'empresa': caminhao.empresa
-    }
+    return caminhao.id_caminhao
