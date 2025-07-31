@@ -46,6 +46,7 @@ def criar_caminhao_manual():
 
 @cadastro_bp.route('/caminhao/imagem', methods=['POST'])
 def criar_caminhao_por_imagem():
+    print("Campos recebidos:", request.files, request.form)
     if 'imagem' not in request.files:
         return jsonify({'error': 'Imagem da placa é obrigatória'}), 400
 
@@ -67,7 +68,9 @@ def criar_caminhao_por_imagem():
             imagem_file.save(temp_file.name)
             temp_path = temp_file.name
 
-        placa = reconhecer_placa(temp_path)
+        placa = reconhecer_placa(temp_path, debug=True)
+        print(f"Resultado do OCR: {placa}")
+
         os.remove(temp_path)
 
         if not placa:
