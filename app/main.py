@@ -13,6 +13,10 @@ from logging.handlers import RotatingFileHandler
 def create_app(config_name=None):
     app = Flask(__name__)
 
+    # Ativa CORS globalmente para todas as rotas e origens
+    from flask_cors import CORS
+    CORS(app, resources={r"/*": {"origins": "*"}})
+
     # Configuração da aplicação
     config_class = get_config()
     app.config.from_object(config_class)

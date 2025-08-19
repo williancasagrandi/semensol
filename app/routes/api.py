@@ -6,12 +6,13 @@ from flask import Blueprint, request, jsonify
 
 from app.routes.reconhecimento_routes import reconhecer_completo
 from app.services.reconhecimento_service import processar_reconhecimento_completo
-from app.services.cadastro_service import cadastrar_motorista, cadastrar_caminhao, listar_motoristas, listar_caminhoes
-from app.services.balanca_service import registrar_entrada, registrar_saida, get_historico, get_ciclos_abertos
+from app.services.cadastro_service import cadastrar_motorista, cadastrar_caminhao
+from app.services.balanca_service import registrar_entrada, registrar_saida, get_historico, get_ciclos_abertos, get_caminhao
 from app.utils.face_utils import reconhecer_motorista_cadastrado
 
-api_bp = Blueprint('api', __name__, url_prefix='/api')
+api_bp = Blueprint('api', __name__)
 
+# listar_motoristas, listar_caminhoes
 
 # ---------------------- CADASTRO ----------------------
 
@@ -41,15 +42,11 @@ def route_cadastrar_caminhao():
         return jsonify({'erro': str(e)}), 500
 
 
-@api_bp.route('/motoristas', methods=['GET'])
-def route_listar_motoristas():
-    return jsonify(listar_motoristas()), 200
-
 
 @api_bp.route('/caminhoes', methods=['GET'])
-def route_listar_caminhoes():
-    return jsonify(listar_caminhoes()), 200
-
+def listar_caminhoes():
+    rows = get_caminhao()
+    return jsonify([{'id': r[0], 'placa': r[1]} for r in rows]), 200
 
 # ---------------------- RECONHECIMENTO ----------------------
 

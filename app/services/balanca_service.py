@@ -33,6 +33,8 @@ def registrar_saida(evento_id, peso):
 def get_motoristas():
     return Motorista.query.with_entities(Motorista.id_motorista, Motorista.nome).all()
 
+def get_caminhao():
+    return Caminhao.query.with_entities(Caminhao.id_caminhao, Caminhao.placa).all()
 
 def get_ciclos_abertos():
     return (

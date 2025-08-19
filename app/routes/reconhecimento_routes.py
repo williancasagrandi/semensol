@@ -52,7 +52,7 @@ def route_reconhecer_motorista():
         os.remove(temp_path)  # Remove imagem temporária
 
         if not motorista:
-            return jsonify({'mensagem': 'Motorista não reconhecido'}), 404
+            return jsonify({'erro': 'Motorista nao reconhecido'}), 404
 
         return jsonify({
             'id_motorista': motorista.id_motorista,
