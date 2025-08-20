@@ -1,44 +1,39 @@
-from app.models import RegistroReconhecimento, Motorista, Caminhao, CicloPesagem
+import os
+from sqlalchemy import func
+from typing import Dict, Any
+
+from app.models import Caminhao
 from app.utils.face_utils import reconhecer_motorista_cadastrado
 from app.utils.plate_utils import reconhecer_placa
-from app.database import db
-from datetime import datetime
 
+DEFAULT_TOL = float(os.getenv("FACE_TOLERANCIA", "0.6"))
 
-def processar_reconhecimento_completo(imagem_rosto_path, imagem_placa_path):
-    motorista, confianca_facial = reconhecer_motorista_cadastrado(imagem_rosto_path)
-    placa = reconhecer_placa(imagem_placa_path)
+def processar_reconhecimento_completo(path_rosto: str, path_placa: str) -> Dict[str, Any]:
+    resp: Dict[str, Any] = {"motorista": None, "placa": None, "caminhao": None}
 
-    caminhao = Caminhao.query.filter_by(placa=placa).first() if placa else None
+    # Face
+    motorista, conf_face = reconhecer_motorista_cadastrado(path_rosto, tolerancia=DEFAULT_TOL)
+    if motorista:
+        resp["motorista"] = {
+            "id_motorista": motorista.id_motorista,
+            "nome": getattr(motorista, "nome", None),
+            "confianca": round(float(conf_face), 4)
+        }
 
-    ciclo = None
-    if caminhao and motorista:
-        ciclo = (
-            CicloPesagem.query
-            .filter_by(caminhao_id=caminhao.id_caminhao, motorista_id=motorista.id_motorista)
-            .order_by(CicloPesagem.id_pesagem.desc())
-            .first()
-        )
+    # Placa
+    placa_txt = reconhecer_placa(path_placa)
+    if placa_txt:
+        placa_norm = placa_txt.upper()
+        resp["placa"] = {"texto": placa_norm}
 
-    tipo_operacao = 'entrada' if not ciclo or not ciclo.peso_saida else 'saida'
+        caminhao = Caminhao.query.filter(func.upper(Caminhao.placa) == placa_norm).first()
+        if caminhao:
+            resp["caminhao"] = {
+                "id_caminhao": caminhao.id_caminhao,
+                "placa": caminhao.placa,
+                "modelo": getattr(caminhao, "modelo", None),
+                "empresa": getattr(caminhao, "empresa", None)
+            }
 
-    registro = RegistroReconhecimento(
-        motorista_id=motorista.id_motorista if motorista else None,
-        caminhao_id=caminhao.id_caminhao if caminhao else None,
-        ciclo_id=ciclo.id_pesagem if ciclo else None,
-        confianca_facial=confianca_facial,
-        imagem_rosto=imagem_rosto_path,
-        imagem_placa=imagem_placa_path,
-        tipo_operacao=tipo_operacao,
-        data_hora=datetime.now()
-    )
-
-    db.session.add(registro)
-    db.session.commit()
-
-    return {
-        'motorista': motorista.to_dict() if motorista else None,
-        'placa': placa,
-        'confianca_facial': confianca_facial,
-        'tipo_operacao': tipo_operacao
-    }
+    resp["sucesso"] = bool(resp["motorista"] and resp["caminhao"])
+    return resp

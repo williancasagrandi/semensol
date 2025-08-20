@@ -1,87 +1,110 @@
 from flask import Blueprint, request, jsonify
+from werkzeug.datastructures import FileStorage
+import os, tempfile, re
+
 from app.services.cadastro_service import cadastrar_motorista, cadastrar_caminhao
+from app.utils.plate_utils import reconhecer_placa
 
 cadastro_bp = Blueprint('cadastro', __name__)
 
+# ---------- helpers ----------
+def _json_error(http_code: int, code: str, msg: str):
+    return jsonify({"ok": False, "error": {"code": code, "message": msg}}), http_code
+
+def _is_image(fs: FileStorage) -> bool:
+    if not fs or not fs.filename:
+        return False
+    mt = fs.mimetype or ""
+    return mt.startswith("image/")
+
+def _as_tempfile(fs: FileStorage, suffix: str = ".jpg") -> str:
+    # Compatível com Windows: fechar o descritor antes de salvar
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    fs.save(path)
+    return path
+
+def _norm_placa(txt: str) -> str:
+    return re.sub(r'[^A-Z0-9]', '', (txt or '').upper())
+
+# ---------- rotas ----------
 @cadastro_bp.route('/motorista', methods=['POST'])
 def route_cadastrar_motorista():
-    if 'imagem' not in request.files:
-        return jsonify({'erro': 'Imagem do motorista é obrigatória'}), 400
-
-    imagem = request.files['imagem']
+    img_fs = request.files.get('imagem')
+    if not _is_image(img_fs):
+        return _json_error(400, "bad_request", "Imagem do motorista é obrigatória")
 
     nome = request.form.get('nome')
-    cpf = request.form.get('cpf')
-    cnh = request.form.get('cnh')
+    cpf  = request.form.get('cpf')
+    cnh  = request.form.get('cnh')
 
-    for campo, valor in [('nome', nome), ('cpf', cpf), ('cnh', cnh)]:
+    for campo, valor in (('nome', nome), ('cpf', cpf), ('cnh', cnh)):
         if not valor:
-            return jsonify({'erro': f'{campo} é obrigatório'}), 400
+            return _json_error(400, "bad_request", f"{campo} é obrigatório")
 
+    tmp_path = None
     try:
-        dados = {'nome': nome, 'cpf': cpf, 'cnh': cnh}
-        motorista = cadastrar_motorista(dados, imagem)
-        return jsonify(motorista), 201
+        tmp_path = _as_tempfile(img_fs, ".jpg")
+        # serviço deve validar CPF/CNH, qualidade e extrair embedding
+        motorista = cadastrar_motorista(
+            dados={"nome": nome, "cpf": cpf, "cnh": cnh},
+            imagem_path=tmp_path
+        )
+        # motorista deve ser dict serializável retornado pelo serviço
+        return jsonify({"ok": True, "motorista": motorista}), 201
+    except ValueError as ve:
+        # erros de validação/duplicidade mapeados para 400
+        return _json_error(400, "validation_error", str(ve))
     except Exception as e:
-        return jsonify({'erro': str(e)}), 500
-
+        return _json_error(500, "internal_error", str(e))
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 @cadastro_bp.route('/caminhao/manual', methods=['POST'])
 def criar_caminhao_manual():
-    data = request.get_json()
-    placa = data.get('placa')
-    modelo = data.get('modelo')
+    data = request.get_json(silent=True) or {}
+    placa   = data.get('placa')
+    modelo  = data.get('modelo')
     empresa = data.get('empresa')
 
     if not placa or not modelo or not empresa:
-        return jsonify({'error': 'placa, modelo e empresa são obrigatórios'}), 400
+        return _json_error(400, "bad_request", "placa, modelo e empresa são obrigatórios")
 
     try:
-        id_caminhao = cadastrar_caminhao(placa.upper(), modelo, empresa)
-        return jsonify({'id_caminhao': id_caminhao}), 201
+        placa_norm = _norm_placa(placa)  # defensivo; o serviço também deve normalizar
+        id_caminhao = cadastrar_caminhao(placa_norm, modelo, empresa)
+        return jsonify({"ok": True, "id_caminhao": id_caminhao, "placa": placa_norm}), 201
+    except ValueError as ve:
+        return _json_error(400, "validation_error", str(ve))
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
+        return _json_error(500, "internal_error", str(e))
 
 @cadastro_bp.route('/caminhao/imagem', methods=['POST'])
 def criar_caminhao_por_imagem():
-    print("Campos recebidos:", request.files, request.form)
-    if 'imagem' not in request.files:
-        return jsonify({'error': 'Imagem da placa é obrigatória'}), 400
+    img_fs = request.files.get('imagem')
+    if not _is_image(img_fs):
+        return _json_error(400, "bad_request", "Imagem da placa é obrigatória")
 
-    modelo = request.form.get('modelo')
+    modelo  = request.form.get('modelo')
     empresa = request.form.get('empresa')
-
     if not modelo or not empresa:
-        return jsonify({'error': 'modelo e empresa são obrigatórios'}), 400
+        return _json_error(400, "bad_request", "modelo e empresa são obrigatórios")
 
-    imagem_file = request.files['imagem']
-    if imagem_file.filename == '':
-        return jsonify({'error': 'Arquivo de imagem vazio'}), 400
-
-    import tempfile, os
-    from app.utils.plate_utils import reconhecer_placa
-
+    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-            imagem_file.save(temp_file.name)
-            temp_path = temp_file.name
+        tmp_path = _as_tempfile(img_fs, ".jpg")
+        placa_txt = reconhecer_placa(tmp_path, debug=False)
+        if not placa_txt:
+            return _json_error(400, "ocr_failed", "Não foi possível reconhecer a placa na imagem")
 
-        placa = reconhecer_placa(temp_path, debug=True)
-        print(f"Resultado do OCR: {placa}")
-
-        os.remove(temp_path)
-
-        if not placa:
-            return jsonify({'error': 'Não foi possível reconhecer a placa na imagem'}), 400
-
-        id_caminhao = cadastrar_caminhao(placa.upper(), modelo, empresa)
-        return jsonify({
-            'id_caminhao': id_caminhao,
-            'placa': placa.upper()
-        }), 201
-
+        placa_norm = _norm_placa(placa_txt)  # defensivo
+        id_caminhao = cadastrar_caminhao(placa_norm, modelo, empresa)
+        return jsonify({"ok": True, "id_caminhao": id_caminhao, "placa": placa_norm}), 201
+    except ValueError as ve:
+        return _json_error(400, "validation_error", str(ve))
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+        return _json_error(500, "internal_error", str(e))
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
